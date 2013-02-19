@@ -4,7 +4,7 @@ var	scene = {
 	},
 	startTime = now(),
 	lastTick = 0,
-	tickFps = 1,
+	tickFps = 10,
 	tickMillis = 1000/tickFps,
 	ticks = 0,
 	maxZoom = 80, minZoom = 20,
@@ -12,13 +12,11 @@ var	scene = {
 	zoomFov, // computed in render step for smooth zooming
 	lastZoom = zoom,
 	pin = null,
-	trajectories = [];
+	trajectories = [],
+	mouse = null;
 	
 function onZoom(out) {
-	if(out)
-		zoom++;
-	else
-		zoom--;
+	zoom += out? 1: -1;
 	zoom = Math.min(maxZoom,Math.max(minZoom,zoom));
 }
 
@@ -239,7 +237,20 @@ function render() {
 		lastTick = t = ticks = 0;
 	}
 	// tick
+	
 	while(lastTick <= t) {
+		if(mousePos) {
+			var	scrollEdge = 10,
+				zoomT = 0.1 * Math.max(0.1,(zoom-minZoom)/(maxZoom-minZoom));
+			if((keys[37] && !keys[39]) || mousePos[0] < scrollEdge) // left
+				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,[0,-1,0]));
+			else if((keys[39] && !keys[37]) || mousePos[0] > canvas.width-scrollEdge) // right
+				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,[0,1,0]));
+			else if((keys[38] && !keys[40]) || mousePos[1] < scrollEdge) // up
+				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,[-1,0,0]));
+			else if((keys[40] && !keys[38]) || mousePos[1] > canvas.height-scrollEdge) // down
+				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,[1,0,0]));
+		}
 		//###....
 		lastTick += tickMillis;
 		ticks++;

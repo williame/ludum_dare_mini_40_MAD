@@ -9,7 +9,7 @@ html, body { border:0px;margin:0px;padding:0px; color:white; background-color:bl
 
 <script type="text/javascript">
 
-var gl, canvas, splash, audio, messages, keys = {}, loading = true;
+var gl, canvas, splash, audio, messages, keys = {}, loading = true, mousePos = null;
 
 function init() {
 	canvas = document.getElementById("game-canvas");
@@ -57,9 +57,27 @@ function init() {
 			evt.cancelBubble = true;
 			if(evt.target !== canvas)
 				return;
+			mousePos = [evt.clientX,evt.clientY];
 			if(!UI.onMouseMove(evt,keys,isMouseDown) && window.onMouseMove)
 				window.onMouseMove(evt,keys,isMouseDown);
 			schedule.run();
+		},
+		onMouseOver = function(evt) {
+			evt.cancelBubble = true;
+			if(isMouseDown)
+				onMouseUp(evt);
+			isMouseDown = false;
+			if(window.onMouseOver)
+				window.onMouseOver(evt);
+		},
+		onMouseOut = function(evt) {
+			evt.cancelBubble = true;
+			if(isMouseDown)
+				onMouseUp(evt);
+			isMouseDown = false;
+			if(window.onMouseOut)
+				window.onMouseOut(evt);
+			mousePos = null;
 		},
 		onMouseUp = function(evt) {
 			evt.cancelBubble = true;
@@ -110,11 +128,13 @@ function init() {
 			document.addEventListener("mousedown",onMouseDown,true);
 			document.addEventListener("mouseup",onMouseUp,true);
 			document.addEventListener("mousemove",onMouseMove,true);
+			document.addEventListener("mouseover",onMouseOver,true);
+			document.addEventListener("mouseout",onMouseOut,true);
+			document.addEventListener("mousewheel",onMouseWheel,true); //chrome
+			document.addEventListener("DOMMouseScroll",onMouseWheel,true); //FF
 			document.addEventListener("contextmenu",onContextMenu,true);
 			document.addEventListener("keydown",onKeyDown,true);
 			document.addEventListener("keyup",onKeyUp,true);
-			document.addEventListener("DOMMouseScroll",onMouseWheel,true);
-			document.addEventListener("mousewheel",onMouseWheel,true);
 			document.onselectstart = function(){ return false; } // otherwise Chrome doesn't show custom cursors
 			window.focus();
 			// splash
