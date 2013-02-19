@@ -29,14 +29,14 @@ function init() {
 		fail.error = true;
 		alert("ERROR "+url+"#"+lineno+"\n"+msg);
 	};
-  	window.onresize = function() {
+  	window.onresize = function(evt) {
   		canvas.style.height = (window.innerHeight - canvas.offsetTop)+"px";
 		canvas.width = canvas.offsetWidth;
 		canvas.height = canvas.offsetHeight;
 		gl.viewport(0,0,canvas.offsetWidth,canvas.offsetHeight);
 		if(splash) splash.dirty();
 		if(window.onResize) // game code hook if its interested
-			window.onResize();
+			window.onResize(evt);
 	};
 	window.onresize();
 	var audioFactory = window.webkitAudioContext || window.mozAudioContext;

@@ -1,5 +1,7 @@
 
-var	scene = {},
+var	scene = {
+		mvMatrix: mat4_identity,
+	},
 	startTime = now(),
 	lastTick = 0,
 	tickFps = 1,
@@ -8,7 +10,9 @@ var	scene = {},
 	maxZoom = 80, minZoom = 20,
 	zoom = 70,
 	zoomFov, // computed in render step for smooth zooming
-	lastZoom = zoom;
+	lastZoom = zoom,
+	pin = null,
+	trajectories = [];
 	
 function onZoom(out) {
 	if(out)
@@ -18,18 +22,94 @@ function onZoom(out) {
 	zoom = Math.min(maxZoom,Math.max(minZoom,zoom));
 }
 
-function onMouseDown(evt) {
+function evtPos(evt) {
+	if(!scene.ortho) return null;
 	var	x = lerp(scene.ortho[0],scene.ortho[1],evt.clientX/canvas.width),
-		y = lerp(scene.ortho[3],scene.ortho[2],evt.clientY/canvas.height),
+		y = lerp(scene.ortho[3],scene.ortho[2],evt.clientY/canvas.height), // flipped
 		sqrd = x*x+y*y;
-	if (sqrd > 1) { // user clicked outside of sphere
-		caret.setPos(null);
-		return;
-	}
-	//The negative sqrt is closer to the screen than the positive one, so we prefer that.
-	var z = Math.sqrt(1-sqrd);
-	caret.setPos(mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),[x,y,z]));
+	return (sqrd > 1)?
+		null:
+		mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),[x,y,Math.sqrt(1-sqrd)]);
 }
+
+function onMouseDown(evt) {
+	pin = evtPos(evt);
+	if(pin && caret.pos) {
+		trajectories.push(new Trajectory(caret.pos,pin));
+		caret.setPos(pin);
+	} else
+		caret.setPos(pin);
+}
+
+function onMouseMove(evt,keys,isMouseDown) {
+	if(!isMouseDown) return;
+	return; //######
+	var pt = evtPos(evt);
+	if(pin == null) pin = pt;
+	if(pt == null) return;
+	var	d = vec3_sub(pt,pin),
+		rotx = Math.atan2(d[1],d[2]),
+		roty = (d[2] >= 0)||true?
+			-Math.atan2(d[0] * Math.cos(rotx),d[2]):
+			Math.atan2(d[0] * Math.cos(rotx),-d[2]),
+		rotz = Math.atan2(Math.cos(rotx),Math.sin(rotx)*Math.sin(roty));
+	scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(rotx,[1,0,0]));
+	scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(roty,[0,1,0]));
+	scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(rotz,[0,0,1]));
+}
+
+function onMouseUp(evt) {
+	pin = null;
+}
+
+function Trajectory(from,to) {
+	assert(this !== window);
+	this.steps = 10;
+	from = vec3_vec4(from,0);
+	to = vec3_vec4(to,0);
+	var pts = new Float32Array(3*this.steps);
+	for(var i=0; i<this.steps; i++) {
+		var	t = i/(this.steps-1),
+			pt = vec3_scale(quat_slerp(from,to,t),1+0.15*Math.sin(t*Math.PI));
+		pts[i*3] = pt[0];
+		pts[i*3+1] = pt[1];
+		pts[i*3+2] = pt[2];
+	}
+	this.vbo = gl.createBuffer();
+	gl.bindBuffer(gl.ARRAY_BUFFER,this.vbo);
+	gl.bufferData(gl.ARRAY_BUFFER,pts,gl.STATIC_DRAW);
+	gl.bindBuffer(gl.ARRAY_BUFFER,null);
+}
+Trajectory.prototype = {
+	program: createProgram(
+		"precision mediump float;\n"+
+		"attribute vec3 vertex;\n"+
+		"uniform mat4 pMatrix, mvMatrix;\n"+
+		"void main() {\n"+
+		"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
+		"}\n",
+		"precision mediump float;\n"+
+		"uniform vec4 colour;\n"+
+		"void main() {\n"+
+		"	gl_FragColor = colour;\n"+
+		"}\n",
+		["pMatrix","mvMatrix","colour",],
+		["vertex"]),
+	draw: function() {
+		gl.useProgram(this.program);
+		gl.bindBuffer(gl.ARRAY_BUFFER,this.vbo);
+		gl.uniformMatrix4fv(this.program.pMatrix,false,scene.pMatrix);
+		gl.uniformMatrix4fv(this.program.mvMatrix,false,scene.mvMatrix);
+		gl.uniform4f(this.program.colour,1,0,0,1);
+		gl.enableVertexAttribArray(this.program.vertex);
+		gl.vertexAttribPointer(this.program.vertex,3,gl.FLOAT,false,3*4,0);
+		gl.drawArrays(gl.LINE_STRIP,0,this.steps);
+		gl.disableVertexAttribArray(this.program.vertex);
+		gl.bindBuffer(gl.ARRAY_BUFFER,null);
+		gl.useProgram(null);
+	},
+};
+
 
 function computeDistance(lng1,lat1,lng2,lat2) { // radians in, metres out.  untested
 	return Math.acos(Math.sin(lat1)*Math.sin(lat2) + 
@@ -89,10 +169,8 @@ var caret = { // this is just test code, to make it easy to put a marker anywher
 };		
 
 function game() {
-	scene.sphere = Sphere(5);
 	splash.dismiss();
 	loading = false;
-	
 	scene.map = {
 		vbo: gl.createBuffer(),
 		draw: function() {
@@ -163,24 +241,18 @@ function render() {
 	var	gameTime = t,
 		pathTime = Math.min(1,Math.max(0,1-((lastTick-t)/tickMillis))); // now as fraction of next step
 	zoomFov = lastZoom+(zoom-lastZoom)*pathTime; // smooth zoom
-	if(false) {
-		scene.pMatrix = createPerspective(zoomFov,canvas.width/canvas.height,0.1,4);
-		scene.eye = [0,0,-2];
-		scene.mvMatrix = createLookAt(scene.eye,[0,0,0],[0,1,0]);
-	} else {
-		var	zoomFactor = 0.3+(zoomFov-minZoom)/(maxZoom-minZoom),
-			xaspect = canvas.width>canvas.height? canvas.width/canvas.height: 1,
-			yaspect = canvas.width<canvas.height? canvas.height/canvas.width: 1,
-			ortho = [-zoomFactor*xaspect,zoomFactor*xaspect,-zoomFactor*yaspect,zoomFactor*yaspect];
-		scene.ortho = ortho;
-		scene.pMatrix = createOrtho2D(ortho[0],ortho[1],ortho[2],ortho[3]);
-		scene.mvMatrix = mat4_identity;
-	}
-	scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation((ticks+pathTime)/10,[0,1,0]));
+	var	zoomFactor = 0.3+(zoomFov-minZoom)/(maxZoom-minZoom),
+		xaspect = canvas.width>canvas.height? canvas.width/canvas.height: 1,
+		yaspect = canvas.width<canvas.height? canvas.height/canvas.width: 1,
+		ortho = [-zoomFactor*xaspect,zoomFactor*xaspect,-zoomFactor*yaspect,zoomFactor*yaspect];
+	scene.ortho = ortho;
+	scene.pMatrix = createOrtho2D(ortho[0],ortho[1],ortho[2],ortho[3],-2,2);
+	//scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation((ticks+pathTime)/10,[0,1,0]));
 	gl.clearColor(0,0,0,1);
 	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-	//scene.sphere.draw(pMatrix,mvMatrix,[0,0,0,0.99]);
 	scene.map.draw();
+	for(var trajectory in trajectories)
+		trajectories[trajectory].draw();
 	caret.draw();
 }
 
