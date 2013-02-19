@@ -22,7 +22,7 @@ function onMouseDown(evt) {
 	var	ray = unproject(evt.clientX,canvas.height-evt.clientY,scene.pMatrix,scene.mvMatrix,[0,0,canvas.width,canvas.height]),
 		hit = sphere_ray_intersection([0,0,0,1],ray[0],ray[1]);
 	if(hit != null)
-		hit = vec3_add(ray[0],vec3_scale(ray[1],hit[0]));
+		hit = mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),vec3_add(ray[0],vec3_scale(ray[1],hit[0])));
 	caret.setPos(hit);
 }
 
@@ -94,10 +94,8 @@ function game() {
 			gl.useProgram(this.program);
 			gl.uniformMatrix4fv(this.program.pMatrix,false,scene.pMatrix);
 			gl.uniformMatrix4fv(this.program.mvMatrix,false,scene.mvMatrix);
-			var nMatrix = mat4_transpose(mat4_inverse(scene.mvMatrix));
-			gl.uniformMatrix4fv(this.program.nMatrix,false,nMatrix);
-			gl.uniform4fv(this.program.camera,mat4_vec4_multiply(mat4_inverse(scene.mvMatrix),[0,0,0,1]));
-			gl.uniform4fv(this.program.colour,[0,1,0,1]);
+			gl.uniform4f(this.program.fgColour,0,1,0,1);
+			gl.uniform4f(this.program.bgColour,0,0.3,0,0.8);
 			gl.enableVertexAttribArray(this.program.vertex);
 			gl.bindBuffer(gl.ARRAY_BUFFER,this.vbo);
 			gl.lineWidth(1+3*(maxZoom-zoomFov)/(maxZoom-minZoom)); // scale lines by zoom
@@ -115,21 +113,19 @@ function game() {
 		program: createProgram(
 			"precision mediump float;\n"+
 			"attribute vec3 vertex;\n"+
-			"uniform mat4 pMatrix, mvMatrix, nMatrix;\n"+
-			"varying vec4 n;\n"+
+			"uniform mat4 pMatrix, mvMatrix;\n"+
+			"varying vec4 v;\n"+
 			"void main() {\n"+
 			"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
-			"	n = pMatrix * nMatrix * vec4(vertex,1.0);\n"+
+			"	v = gl_Position;\n"+
 			"}\n",
 			"precision mediump float;\n"+
-			"uniform vec4 colour;\n"+
-			"uniform vec4 camera;\n"+
-			"varying vec4 n;\n"+
+			"uniform vec4 fgColour, bgColour;\n"+
+			"varying vec4 v;\n"+
 			"void main() {\n"+
-			//"	if(dot(vec4(0,0,0,1),n) > 0.0) discard;\n"+
-			"	gl_FragColor = colour;\n"+
+			"	gl_FragColor = (v.z > 0.0)? bgColour: fgColour;\n"+
 			"}\n",
-			["pMatrix","mvMatrix","colour","camera","nMatrix"],
+			["pMatrix","mvMatrix","fgColour","bgColour"],
 			["vertex"]),
 		data: getFile("json","data/world.json"),
 	};
@@ -171,8 +167,8 @@ function render() {
 			xaspect = canvas.width>canvas.height? canvas.width/canvas.height: 1,
 			yaspect = canvas.width<canvas.height? canvas.height/canvas.width: 1;
 		scene.pMatrix = createOrtho2D(-zoomFactor*xaspect,zoomFactor*xaspect,-zoomFactor*yaspect,zoomFactor*yaspect);
+		scene.mvMatrix = mat4_identity;
 	}
-	scene.mvMatrix = mat4_identity; //;
 	scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation((ticks+pathTime)/10,[0,1,0]));
 	gl.clearColor(0,0,0,1);
 	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
