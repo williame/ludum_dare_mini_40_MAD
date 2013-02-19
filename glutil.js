@@ -483,9 +483,8 @@ function sphere_ray_intersects(sphere,ray_origin,ray_dir) {
 }
 
 function sphere_ray_intersection2(sphere,ray_origin,ray_dir) {
-	//Compute A, B and C coefficients
 	var	a = vec3_dot(ray_dir,ray_dir),
-		b = 2 * vec3_dot(ray_dir,ray_origin),
+		b = vec3_dot(vec3_scale(ray_dir,2),ray_origin),
 		c = vec3_dot(ray_origin,ray_origin)-(sphere[3]*sphere[3]),
 	//Find discriminant
 		disc = b * b - 4 * a * c;
@@ -553,6 +552,10 @@ function vec3_distance(a,b) {
 
 function vec3_lerp(a,b,k) {
 	return vec3_add(a,vec3_scale(vec3_sub(b,a),k));
+}
+
+function lerp(a,b,k) {
+	return a+(b-a)*k;
 }
 
 function ray_lerp(o,d,k) {

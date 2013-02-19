@@ -19,9 +19,16 @@ function onZoom(out) {
 }
 
 function onMouseDown(evt) {
-	var	ray = unproject(evt.clientX,canvas.height-evt.clientY,scene.pMatrix,scene.mvMatrix,[0,0,canvas.width,canvas.height]),
-		hit = sphere_ray_intersection2([0,0,0,1],ray[0],ray[1]);
-	caret.setPos(hit);
+	var	x = lerp(scene.ortho[0],scene.ortho[1],evt.clientX/canvas.width),
+		y = lerp(scene.ortho[3],scene.ortho[2],evt.clientY/canvas.height),
+		sqrd = x*x+y*y;
+	if (sqrd > 1) { // user clicked outside of sphere
+		caret.setPos(null);
+		return;
+	}
+	//The negative sqrt is closer to the screen than the positive one, so we prefer that.
+	var z = Math.sqrt(1-sqrd);
+	caret.setPos(mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),[x,y,z]));
 }
 
 function computeDistance(lng1,lat1,lng2,lat2) { // radians in, metres out.  untested
@@ -163,8 +170,10 @@ function render() {
 	} else {
 		var	zoomFactor = 0.3+(zoomFov-minZoom)/(maxZoom-minZoom),
 			xaspect = canvas.width>canvas.height? canvas.width/canvas.height: 1,
-			yaspect = canvas.width<canvas.height? canvas.height/canvas.width: 1;
-		scene.pMatrix = createOrtho2D(-zoomFactor*xaspect,zoomFactor*xaspect,-zoomFactor*yaspect,zoomFactor*yaspect);
+			yaspect = canvas.width<canvas.height? canvas.height/canvas.width: 1,
+			ortho = [-zoomFactor*xaspect,zoomFactor*xaspect,-zoomFactor*yaspect,zoomFactor*yaspect];
+		scene.ortho = ortho;
+		scene.pMatrix = createOrtho2D(ortho[0],ortho[1],ortho[2],ortho[3]);
 		scene.mvMatrix = mat4_identity;
 	}
 	scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation((ticks+pathTime)/10,[0,1,0]));
