@@ -104,7 +104,7 @@ function init() {
 		onMouseWheel = function(evt) {
 			evt.cancelBubble = true;
 			if(window.onZoom)
-				window.onZoom(evt.detail < 0);
+				window.onZoom((evt.detail||evt.wheelDelta) > 0);
 		};
 	var loaded = Waiter(function() {
 			document.addEventListener("mousedown",onMouseDown,true);
@@ -114,6 +114,7 @@ function init() {
 			document.addEventListener("keydown",onKeyDown,true);
 			document.addEventListener("keyup",onKeyUp,true);
 			document.addEventListener("DOMMouseScroll",onMouseWheel,true);
+			document.addEventListener("mousewheel",onMouseWheel,true);
 			document.onselectstart = function(){ return false; } // otherwise Chrome doesn't show custom cursors
 			window.focus();
 			// splash
