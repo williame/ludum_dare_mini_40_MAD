@@ -20,7 +20,9 @@ function onZoom(out) {
 
 function onMouseDown(evt) {
 	var	ray = unproject(evt.clientX,canvas.height-evt.clientY,scene.pMatrix,scene.mvMatrix,[0,0,canvas.width,canvas.height]),
-		hit = sphere_ray_intersects(vec3_vec4(mat4_vec3_multiply(mat4_multiply(scene.pMatrix,scene.mvMatrix),[0,0,0]),1),ray[0],ray[1]);
+		hit = sphere_ray_intersection([0,0,0,1],ray[0],ray[1]);
+	if(hit != null)
+		hit = vec3_add(ray[0],vec3_scale(ray[1],hit[0]));
 	caret.setPos(hit);
 }
 
@@ -124,7 +126,7 @@ function game() {
 			"uniform vec4 camera;\n"+
 			"varying vec4 n;\n"+
 			"void main() {\n"+
-			"	if(dot(vec4(0,0,0,1),n) > 0.0) discard;\n"+
+			//"	if(dot(vec4(0,0,0,1),n) > 0.0) discard;\n"+
 			"	gl_FragColor = colour;\n"+
 			"}\n",
 			["pMatrix","mvMatrix","colour","camera","nMatrix"],
@@ -160,9 +162,17 @@ function render() {
 	var	gameTime = t,
 		pathTime = Math.min(1,Math.max(0,1-((lastTick-t)/tickMillis))); // now as fraction of next step
 	zoomFov = lastZoom+(zoom-lastZoom)*pathTime; // smooth zoom
-	scene.pMatrix = createPerspective(zoomFov,canvas.width/canvas.height,0.1,4);
-	scene.eye = [-2,0,0];
-	scene.mvMatrix = createLookAt(scene.eye,[0,0,0],[0,1,0]);
+	if(false) {
+		scene.pMatrix = createPerspective(zoomFov,canvas.width/canvas.height,0.1,4);
+		scene.eye = [0,0,-2];
+		scene.mvMatrix = createLookAt(scene.eye,[0,0,0],[0,1,0]);
+	} else {
+		var	zoomFactor = 0.3+(zoomFov-minZoom)/(maxZoom-minZoom),
+			xaspect = canvas.width>canvas.height? canvas.width/canvas.height: 1,
+			yaspect = canvas.width<canvas.height? canvas.height/canvas.width: 1;
+		scene.pMatrix = createOrtho2D(-zoomFactor*xaspect,zoomFactor*xaspect,-zoomFactor*yaspect,zoomFactor*yaspect);
+	}
+	scene.mvMatrix = mat4_identity; //;
 	scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation((ticks+pathTime)/10,[0,1,0]));
 	gl.clearColor(0,0,0,1);
 	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);

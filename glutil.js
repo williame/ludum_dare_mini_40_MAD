@@ -391,7 +391,11 @@ function vec3_cross(a,b) {
 }
 
 function vec3_length(v) {
-	return Math.sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
+	return Math.sqrt(vec3_length_sqrd(v));
+}
+
+function vec3_length_sqrd(v) {
+	return v[0]*v[0]+v[1]*v[1]+v[2]*v[2];
 }
 
 function vec3_vec4(v,w) {
@@ -468,29 +472,14 @@ function triangle_ray_intersection(a,b,c,ray_origin,ray_dir,n,is_seg) {
 }
 
 function sphere_ray_intersects(sphere,ray_origin,ray_dir) {
-	//Compute A, B and C coefficients
-	var	a = vec3_dot(ray_dir,ray_dir),
-    		b = 2 * vec3_dot(ray_dir,ray_origin),
-    		c = vec3_dot(ray_origin,ray_origin)-(sphere[3]*sphere[3]),
-    		disc = b * b - 4 * a * c;
-	// if discriminant is negative there are no real roots 
-	if (disc < 0) return null;
-	// compute q as described above
-	var	distSqrt = Math.sqrt(disc),
-		q = b<0? (-b - distSqrt)/2.0: (-b + distSqrt)/2.0,
-	// compute t0 and t1
-		t0 = q / a,
-		t1 = c / q;
-	// make sure t0 is smaller than t1
-	if(t0 > t1) {
-		var temp = t0;
-		t0 = t1;
-		t1 = temp;
-	}	
-	// if t1 is less than zero, the object is in the ray's negative direction
-	if (t1 < 0) return null;
-	// if t0 is less than zero, the intersection point is at t1
-	return vec3_add(ray_origin,vec3_scale(ray_dir,t0<0?t1:t0));
+	var	C0 = vec3_sub(ray_origin,sphere),
+		a = vec3_dot(ray_dir,ray_dir),
+		b = 2 * vec3_dot(C0,ray_dir),
+		c = vec3_dot(C0,C0) - sphere[3]*sphere[3],
+		discriminant = b * b - 4 * a * c;
+	if(discriminant < 0)
+		return null;
+	return [a*2,-b,discriminant];
 }
 
 function vec3_rotate(v,rad,axis1,axis2) {
