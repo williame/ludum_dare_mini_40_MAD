@@ -92,7 +92,7 @@ function game() {
 			gl.useProgram(this.program);
 			gl.uniformMatrix4fv(this.program.pMatrix,false,scene.pMatrix);
 			gl.uniformMatrix4fv(this.program.mvMatrix,false,scene.mvMatrix);
-			var nMatrix = mat4_inverse(scene.mvMatrix);
+			var nMatrix = mat4_transpose(mat4_inverse(scene.mvMatrix));
 			gl.uniformMatrix4fv(this.program.nMatrix,false,nMatrix);
 			gl.uniform4fv(this.program.camera,mat4_vec4_multiply(mat4_inverse(scene.mvMatrix),[0,0,0,1]));
 			gl.uniform4fv(this.program.colour,[0,1,0,1]);
@@ -117,14 +117,14 @@ function game() {
 			"varying vec4 n;\n"+
 			"void main() {\n"+
 			"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
-			"	n = pMatrix * vec4(vertex,1.0);\n"+
+			"	n = pMatrix * nMatrix * vec4(vertex,1.0);\n"+
 			"}\n",
 			"precision mediump float;\n"+
 			"uniform vec4 colour;\n"+
 			"uniform vec4 camera;\n"+
 			"varying vec4 n;\n"+
 			"void main() {\n"+
-			"	if(dot(vec4(0,0,0,1),n) < 0.0) discard;\n"+
+			"	if(dot(vec4(0,0,0,1),n) > 0.0) discard;\n"+
 			"	gl_FragColor = colour;\n"+
 			"}\n",
 			["pMatrix","mvMatrix","colour","camera","nMatrix"],
