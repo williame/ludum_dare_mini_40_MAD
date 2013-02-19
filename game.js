@@ -126,7 +126,7 @@ function game() {
 			"uniform vec4 camera;\n"+
 			"varying vec4 n;\n"+
 			"void main() {\n"+
-			//"	if(dot(vec4(0,0,0,1),n) > 0.0) discard;\n"+
+			"	if(n.z) < 0.0) discard;\n"+
 			"	gl_FragColor = colour;\n"+
 			"}\n",
 			["pMatrix","mvMatrix","colour","camera","nMatrix"],
