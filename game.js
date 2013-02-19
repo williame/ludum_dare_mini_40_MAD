@@ -24,7 +24,19 @@ function onMouseDown(evt) {
 	caret.setPos(hit);
 }
 
-var caret = {
+function computeDistance(lng1,lat1,lng2,lat2) { // radians in, metres out.  untested
+	return Math.acos(Math.sin(lat1)*Math.sin(lat2) + 
+		Math.cos(lat1)*Math.cos(lat2) *
+		Math.cos(lon2-lon1)) * 6370986;
+}
+
+function computeBearing(lng1,lat1,lng2,lat2) { // radians in and out.  untested
+	var	y = Math.sin(lon2-lon1)*Math.cos(lat2),
+		x = Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(lon2-lon1);
+	return Math.atan2(y,x);
+}
+
+var caret = { // this is just test code, to make it easy to put a marker anywhere on the globe, so we know where you clicked or whatever for debugging
 	vbo: gl.createBuffer(),
 	pos: null,
 	dirty: true,
@@ -105,15 +117,14 @@ function game() {
 			"varying vec4 n;\n"+
 			"void main() {\n"+
 			"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
-			"	n = nMatrix * vec4(vertex,1.0);\n"+
-			"	gl_PointSize = 10.0;\n"+
+			"	n = gl_Position;\n"+
 			"}\n",
 			"precision mediump float;\n"+
 			"uniform vec4 colour;\n"+
 			"uniform vec4 camera;\n"+
 			"varying vec4 n;\n"+
 			"void main() {\n"+
-			"	if(dot(camera,n) < 0.0) discard;\n"+
+			"	if(dot(vec4(0,0,0,1),n) < 0.0) discard;\n"+
 			"	gl_FragColor = colour;\n"+
 			"}\n",
 			["pMatrix","mvMatrix","colour","camera","nMatrix"],
