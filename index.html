@@ -1,0 +1,602 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Mutually Assured Destruction</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+html, body { border:0px;margin:0px;padding:0px; color:white; background-color:black;}
+#game-canvas { width:100%; border:0px;margin:0px;padding:0px; }
+</style>
+
+<script type="text/javascript">
+
+var gl, canvas, splash, audio, messages, keys = {}, loading = true;
+
+function init() {
+	canvas = document.getElementById("game-canvas");
+	try {
+		gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+	} catch(e) {
+		console.log("Error initializing webGL:",e);
+	}
+	if(!gl) {
+		console.log(gl);
+		alert("Unable to initialize WebGL. Your browser may not support it.");
+		return;
+	}
+	window.onerror = function(msg,url,lineno) {
+		console.log("ERROR:",msg,url,lineno);
+		if(fail.error) return;
+		fail.error = true;
+		alert("ERROR "+url+"#"+lineno+"\n"+msg);
+	};
+  	window.onresize = function() {
+  		canvas.style.height = (window.innerHeight - canvas.offsetTop)+"px";
+		canvas.width = canvas.offsetWidth;
+		canvas.height = canvas.offsetHeight;
+		gl.viewport(0,0,canvas.offsetWidth,canvas.offsetHeight);
+		if(splash) splash.dirty();
+		if(window.onResize) // game code hook if its interested
+			window.onResize();
+	};
+	window.onresize();
+	var audioFactory = window.webkitAudioContext || window.mozAudioContext;
+	if(audioFactory)
+		audio = new audioFactory();
+	var 	isMouseDown = false,
+		onMouseDown = function(evt) {
+			evt.cancelBubble = true;
+			isMouseDown = true;
+			if(evt.target !== canvas)
+				return false;
+			if(!UI.onMouseDown(evt,keys) && window.onMouseDown)
+				window.onMouseDown(evt,keys);
+			schedule.run();
+			return false;
+		},
+		onMouseMove = function(evt) {
+			evt.cancelBubble = true;
+			if(evt.target !== canvas)
+				return;
+			if(!UI.onMouseMove(evt,keys,isMouseDown) && window.onMouseMove)
+				window.onMouseMove(evt,keys,isMouseDown);
+			schedule.run();
+		},
+		onMouseUp = function(evt) {
+			evt.cancelBubble = true;
+			isMouseDown = false;
+			if(evt.target !== canvas)
+				return false;
+			if(!UI.onMouseUp(evt,keys) && window.onMouseUp)
+				window.onMouseUp(evt,keys);
+			schedule.run();
+			return false;
+		},
+		onContextMenu = function(evt) {
+			evt.cancelBubble = true;
+			evt.preventDefault();
+			if(evt.target !== canvas)
+				return false;
+			if(!UI.onContextMenu(evt,keys) && window.onContextMenu)
+				window.onContextMenu(evt,keys);
+			schedule.run();
+			return false;
+		},
+		onKeyDown = function(evt) {
+			evt.cancelBubble = true;
+			if(!keys[evt.which]) {
+				keys[evt.which] = true;
+				if(!UI.onKeyDown(evt,keys) && window.onKeyDown)
+					window.onKeyDown(evt,keys);
+			}
+			schedule.run();
+			return false;
+		},
+		onKeyUp = function(evt) {
+			evt.cancelBubble = true;
+			if(keys[evt.which]) {
+				keys[evt.which] = false;
+				if(!UI.onKeyUp(evt,keys) && window.onKeyUp)
+					window.onKeyUp(evt,keys);
+			}
+			schedule.run();
+			return false;
+		},
+		onMouseWheel = function(evt) {
+			evt.cancelBubble = true;
+			if(window.onZoom)
+				window.onZoom(evt.detail < 0);
+		};
+	var loaded = Waiter(function() {
+			document.addEventListener("mousedown",onMouseDown,true);
+			document.addEventListener("mouseup",onMouseUp,true);
+			document.addEventListener("mousemove",onMouseMove,true);
+			document.addEventListener("contextmenu",onContextMenu,true);
+			document.addEventListener("keydown",onKeyDown,true);
+			document.addEventListener("keyup",onKeyUp,true);
+			document.addEventListener("DOMMouseScroll",onMouseWheel,true);
+			document.onselectstart = function(){ return false; } // otherwise Chrome doesn't show custom cursors
+			window.focus();
+			// splash
+			var splashCtrl = new UIComponent();
+			loadFile("image","data/logo.png",function() { splashCtrl.dirty(); });
+			splashCtrl.setSize([canvas.width,canvas.height]);
+			splashCtrl.draw = function(ctx) {
+				drawLogo(ctx);
+				var font = splashCtrl.getFont();
+				if(!font) return;
+				var	label = "loading...",
+					sz = ctx.measureText(font,label),
+					x = (canvas.width-sz[0])*0.5,
+					y = (canvas.height-sz[1])*0.75;
+				ctx.fillRoundedRect([0.5,0.6,0.6,0.9],3,x,y,x+sz[0],y+sz[1]);
+				ctx.drawTextOutlined(font,[1,1,1,1],[0,0,0,1],x-1,y-1,label);
+			};
+			splash = new UIWindow(false,splashCtrl);
+			window.requestAnimFrame(loadLoop);
+			// phase2 loading
+			loadFile("javascript","game.js",function() {
+				//perf = new Perf();
+				//perf.window().show();
+				loaded = Waiter(game);
+				loadFile("javascript","particles.js",loaded());
+				loadFile("json","data/world.json",loaded());
+			});
+		});
+	loadFile("javascript","glutil.js",loaded());
+	loadFile("javascript","ui.js",loaded());
+	loadFile("javascript","g3d.js",loaded());
+}
+
+function drawLogo(ctx) {
+	ctx.clear();
+	ctx.fillRect([0,0,0,1],0,0,canvas.width,canvas.height);
+	var 	logo = getFile("image","data/logo.png");
+	if(logo) {
+		var	x = (canvas.width-logo.width)/2,
+			y = (canvas.height-logo.height)/2;
+		ctx.drawRect(logo,OPAQUE,
+			Math.max(x,0),Math.max(y,0),
+			Math.min(x+logo.width,canvas.width),
+			Math.min(y+logo.height,canvas.height),
+			0,0,1,1);
+	}
+}
+
+function addMessage(secs,from,text,tag) {
+	var 	f = from? new UILabel(from): null,
+		message = new UIPanel(f?[f,new UILabel(text)]:[new UILabel(text)]);
+	message.bgColour = [0.2,0.2,0.2,1];
+	message.tag = tag;
+	if(f) f.fgColour = [0.8,1,0.8,1];
+	if(!messages) {
+		messages = new UIWindow(false,new UIPanel([],UILayoutRows),"messages");
+		messages.show();
+	}
+	var old = tag? getMessage(tag): null;
+	if(old) {
+		old.parent.replaceChild(old,message);
+		if(old.dismisser) clearTimeout(old.dismisser);
+	} else
+		messages.ctrl.addChild(message);
+	if(secs) message.dismisser = setTimeout(function() { message.destroy(); },secs*1000);
+}
+
+function getMessage(tag) {
+	if(messages)
+		for(var message in messages.ctrl.children) {
+			message = messages.ctrl.children[message];
+			if(message.tag == tag)
+				return message;
+		}
+	return null;
+}
+
+function removeMessage(tag) {
+	var message = getMessage(tag);
+	if(message) message.destroy();
+	return message != null;
+}
+
+function isUndefined(o) { return typeof(o) === "undefined"; }
+function isDefined(o) { return typeof(o) !== "undefined"; }
+
+function assert(condition,msg) {
+	if(!condition) fail("ASSERTION FAILED\n"+(msg||"an error occurred"));
+}
+
+function fail(msg) {
+	fail.error = new Error(msg);
+	throw fail.error;
+}
+
+function copy(a) {
+	var b = {};
+	for(var attr in a)
+		b[attr] = a[attr];
+	return b;
+}
+
+function extend(a,b) {
+	for(var attr in b)
+		a[attr] = b[attr];
+	return a;
+};
+
+function startsWith(str,prefix) {
+	return str.indexOf(prefix) == 0;
+}
+
+function endsWith(str,suffix) {
+	return str.indexOf(suffix,str.length-suffix.length) !== -1;
+}
+
+function now() { return (new Date()).getTime(); }
+
+function loop() {
+	if(fail.error) return;
+	try {
+		window.requestAnimFrame(loop);
+		schedule.run();
+		if(canvas.width && canvas.height) {
+			if(window.render) {
+				if(window.perf)
+					perf.tick();
+				render();
+			}
+			UI.draw(canvas);
+		}
+	} catch(e) {
+		fail.error = e;
+		console.log("ERROR:",e);
+		console.log(e.stack||"<no stack>");
+		alert("ERROR "+e+"\n"+(e.stack||"<no stack>"));
+	}
+}
+
+function loadLoop() {
+	if(fail.error) return;
+	try {
+		if(!loading || (window.isLoadingComplete && window.isLoadingComplete())) {
+			loading = false;
+			splash = null;
+			loop();
+			return;
+		}
+		window.requestAnimFrame(loadLoop);
+		schedule.run();
+		if(canvas.width && canvas.height && splash) {
+			gl.clearColor(0,0,0,1);
+			gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+			splash.draw(canvas);
+		}
+	} catch(e) {
+		fail.error = e;
+		console.log("ERROR:",e);
+		console.log(e.stack||"<no stack>");
+		alert("ERROR "+e+"\n"+(e.stack||"<no stack>"));
+	}
+}
+
+function Waiter(readyCallback) {
+	var waiter = function(msg) {
+		waiter.outstanding.push(msg);
+		return function() {
+			waiter.outstanding.splice(waiter.outstanding.indexOf(msg),1);
+			if(waiter.outstanding.length==0)
+				readyCallback();
+		};
+	};
+	waiter.outstanding = [];
+	return waiter;
+}
+
+function setFile(type,path,bytes) {
+	loadFile.loaded = loadFile.loaded || [];
+	var	key = ""+type+":"+path,
+		obj;
+	if(type == "g3d") {
+		setFile("ArrayBuffer",path,bytes);
+		obj = G3D(path);
+	} else if(type == "ArrayBuffer") {
+		obj = bytes;
+	} else if(type == "json") {
+		obj = bytes;
+		bytes = JSON.stringify(bytes,null,"\t");
+	} else if(type == "image") {
+		var image = new Image();
+		image.onload = function() {
+			loadFile.loaded[key] = createTexture(null,null,image);
+		};
+		image.src = "data:image/png;base64,"+btoa(bytes);
+	} else
+		fail("unsupported type: "+type+", "+path);
+	getDirtyFiles()[key] = bytes;
+	if(obj)
+		loadFile.loaded[key] = obj;
+
+}
+
+function getDirtyFiles() {
+	getDirtyFiles.bytes = getDirtyFiles.bytes || [];
+	return getDirtyFiles.bytes;
+}
+
+function clearCachedFiles() {
+	getDirtyFiles.bytes = [];
+	assert(!loadFile.loading || !loadFile.loading.length);
+	loadFile.loading = [];
+	assert(!loadFile.loadingWait || !loadFile.loading.loadingWait);
+	loadFile.loadingWait = [];
+	loadFile.loaded = [];
+}
+
+function getFile(type,path) {
+	var key = ""+type+":"+path;
+	return loadFile.loaded? loadFile.loaded[key] || null: null;
+}
+
+function loadFile(type,path,callback) {
+	loadFile.loading = loadFile.loading || [];
+	loadFile.loadingWait = loadFile.loadingWait || null;
+	loadFile.loaded = loadFile.loaded || [];
+	callback = callback || function(){};
+	var	key = ""+type+":"+path,
+		args = Array.prototype.slice.call(arguments).slice(3);
+	if(key in loadFile.loaded) {
+		console.log("serving",type,path,"from cache...");
+		setTimeout(function() { callback(loadFile.loaded[key]); },0);
+		return;
+	}
+	if(key in loadFile.loading) {
+		console.log("already loading",type,path,"...");
+		loadFile.loading[key].push([callback,args]);
+		return;
+	}
+	console.log("loading",type,path,"...");
+	if(splash) splash.dirty();
+	loadFile.loading[key] = [[callback,args]];
+	if(loadFile.loadingWait) clearTimeout(loadFile.loadingWait);
+	loadFile.loadingWait = setTimeout(function() {
+		alert("it's taking a long time to load all the files!  Maybe something is wrong?");
+		console.log("awaiting load of:",loadFile.loading);
+		if(splash) splash.dirty();
+	},3000);
+	var done = function(arg) {
+		console.log("loaded",type,path);
+		if(splash) splash.dirty();
+		arg = loadFile.loaded[key] = loadFile.loaded[key] || arg; // could have been set by setFile() in meantime
+		var callbacks = loadFile.loading[key];
+		delete loadFile.loading[key];
+		if(!loadFile.loading.length) clearTimeout(loadFile.loadingWait);
+		for(callback in callbacks) {
+			callback = callbacks[callback];
+			callback[1].unshift(arg);
+			if(callback[0])
+				callback[0].apply(this,callback[1]);
+		}
+	};
+	if(type == "javascript") {
+		var script = document.createElement('script');
+		script.setAttribute("type","text/javascript");
+		script.setAttribute("src",path);
+		script.async = true;
+		script.onload = function() {
+			if(!script.readyState || script.readyState == "loaded" || script.readyState == "complete")
+				done(script);
+			else
+				console.log("loading state:",type,path,script.readyState);
+		};
+		document.getElementsByTagName("head")[0].appendChild(script);
+	} else if(type == "image") {
+		var image = new Image();
+		image.onload = function() {
+			done(createTexture(null,null,image));
+		};
+		image.src = path;
+	} else if(type == "g3d" && window.G3D) {
+		var g3d = new G3D(path,function() { done(g3d); });
+	} else if(type == "iqm" && window.IQM) {
+		var iqm = new IQM(path,function() { done(iqm); });
+	} else if(type == "xml") {
+		var doc = new XMLHttpRequest();
+		doc.open("GET",path,true);
+		doc.onreadystatechange = function() {
+			if (doc.readyState==4 && (!doc.status || doc.status==200))
+				done(doc.responseXML);
+		};
+		doc.send();
+	} else if(type == "json") {
+		var doc = new XMLHttpRequest();
+		doc.open("GET",path,true);
+		doc.overrideMimeType("application/json");
+		doc.onreadystatechange = function() {
+			if (doc.readyState==4 && (!doc.status || doc.status==200))
+				done(JSON.parse(doc.response));
+		};
+		doc.send();		
+	} else if(type == "ArrayBuffer") {
+		var doc = new XMLHttpRequest();
+		doc.open("GET",path,true);
+		doc.responseType = "arraybuffer";
+		doc.overrideMimeType('text/plain; charset=x-user-defined');
+		doc.onreadystatechange = function() {
+			if (doc.readyState==4 && (!doc.status || doc.status==200))
+				done(doc.response);
+		};
+		doc.send();
+	} else if(type == "audio") {
+		if(!audio)
+			done();
+		else {
+			var doc = new XMLHttpRequest();
+			doc.open("GET",path,true);
+			doc.responseType = "arraybuffer";
+			doc.overrideMimeType('text/plain; charset=x-user-defined');
+			doc.onreadystatechange = function() {
+				if (doc.readyState==4 && (!doc.status || doc.status==200))
+					audio.decodeAudioData(doc.response,done);
+			};
+			doc.send();
+		}
+	} else
+		console.log("unsupported type",type,path);
+}
+
+// Data Views are not widely supported in HTML5 browsers yet, so we roll our own and we're happy with it
+function BinaryDataReader(arrayBuffer) {
+	assert(this !== window);
+	this.array = arrayBuffer;
+	this.buffer = new Uint8Array(arrayBuffer);
+	this.len = arrayBuffer.byteLength;
+	this.ofs = 0;
+	if(!BinaryDataReader.inited) {
+		BinaryDataReader.pow2 = new Float32Array(24); // massive speedup if precomputed
+		BinaryDataReader.one_over_pow2 = new Float32Array(24);
+		for(var i=0; i<BinaryDataReader.pow2.length; i++) {
+			BinaryDataReader.pow2[i] = Math.pow(2,i);
+			BinaryDataReader.one_over_pow2[i] = 1 / BinaryDataReader.pow2[i];
+		}
+		BinaryDataReader.float1 = new Float32Array(1);
+		BinaryDataReader.inited = true;
+	}
+};
+BinaryDataReader.prototype = {
+	seek: function(ofs) {
+		assert(ofs <= this.len);
+		this.ofs = ofs;
+		return this;
+	},
+	skip: function(len) {
+		assert(this.ofs + len <= this.len);
+		this.ofs += len;
+		return this;
+	},
+	_read: function(Type,numElements) {
+		numElements = numElements || 1;
+		assert(this.ofs + Type.BYTES_PER_ELEMENT*numElements <= this.len);
+		if(numElements == 1) {
+			var ret = 0;
+			for(var i=0; i<Type.BYTES_PER_ELEMENT; i++)
+				ret |= this.buffer[this.ofs++] << (i*8);
+			return ret;
+		}
+		var raw = new Type(numElements),
+			stop = this.ofs + raw.byteLength;
+		raw.set(this.buffer.subarray(this.ofs,stop));
+		this.ofs = stop;
+		return raw;
+	},
+	uint8: function(len) { return this._read(Uint8Array,len); },
+	uint16: function(len) { return this._read(Uint16Array,len); },
+	uint32: function(len) { return this._read(Uint32Array,len); },
+	strfixed: function(len) {
+		assert(this.ofs + len <= this.len);
+		var s = "";
+		for(var i=0; i<len; i++) {
+			var b = this.buffer[this.ofs++];
+			if(b) s += String.fromCharCode(b);
+		}
+		return s;
+	},
+	str64: function() { return this.strfixed(64); },
+	strz: function() {
+		var s = "", b;
+		while((b = this.buffer[this.ofs++]))
+			s += String.fromCharCode(b);
+		return s;
+	},
+	float32: function(len) {
+		// do our own unpacking (http://www.terrybutler.co.uk/downloads/web/webgl-md2.htm adapted, speeded up 1000x)
+		len = len || 1;
+		var as_float = (len > 1? new Float32Array(len): BinaryDataReader.float1);
+		for(var j=0; j<len; j++) {
+			var value = this.uint32();
+			var sign = (value >> 31) & 0x1;
+			var nonZero = false;
+			var mantissa = 0;
+			var exponent = -127;
+			// Mantissa
+			for(var i = 22; i > -1; i--)
+				if((value >> i & 0x1) == 1) {
+					mantissa += BinaryDataReader.one_over_pow2[23-i];
+					nonZero = true;
+				}	
+			if(nonZero) mantissa += 1;		
+			// Exponent
+			for(var i = 30; i > 22; i--)
+				if((value >> i & 0x1) == 1)
+					exponent += BinaryDataReader.pow2[i-23];
+			var total = Math.pow(2, exponent) * mantissa;		
+			if(sign) total = -total;		
+			as_float[j] = total;
+		}
+		if(len>1) return as_float;
+		return as_float[0];
+	},
+};
+
+function randomSound(list) {
+	if(list.length && audio)
+		playSound(list[Math.floor(Math.random()*list.length)]);
+}
+
+function playSound(clip,volume) {
+	if(!clip) return;
+	var source = audio.createBufferSource();
+	source.buffer = clip;
+	if(volume) {
+		var gainNode = audio.createGainNode();
+		source.connect(gainNode);
+		gainNode.connect(audio.destination);
+		gainNode.gain.value = volume;
+	} else
+		source.connect(audio.destination);
+	source.noteOn(0);
+}
+
+function schedule(func) {
+	schedule._items.push(func);
+}
+
+schedule._items = [];
+
+schedule.run = function() {
+	for(var items = schedule._items; items.length; items = schedule._items) {
+		schedule._items = [];
+		for(var i=items.length; i-->0; ) // most recently pushed first
+			items[i]();
+	}
+};
+
+window.requestAnimFrame = 
+	window.requestAnimationFrame ||
+	window.webkitRequestAnimationFrame ||
+	window.mozRequestAnimationFrame ||
+	window.oRequestAnimationFrame ||
+	window.msRequestAnimationFrame ||
+	function(callback) {
+		window.setTimeout(callback,1000/60);
+	};
+
+if(window.location.href.indexOf("github.com/") != -1) {
+	var _gaq = _gaq || [];
+	_gaq.push(['_setAccount', 'UA-27302158-1']);
+	_gaq.push(['_trackPageview']);
+	
+	(function() {
+	var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+	ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+	var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+	})();
+}
+	
+</script>
+<body onload="init()">
+<noscript>
+Sorry, you don't have Javascript enabled :(
+</noscript>
+<canvas id="game-canvas">
+Sorry, you don't have webGL enabled :(
+</canvas>
+</body>
+</html>
