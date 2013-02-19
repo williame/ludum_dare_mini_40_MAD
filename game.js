@@ -117,7 +117,7 @@ function game() {
 			"varying vec4 n;\n"+
 			"void main() {\n"+
 			"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
-			"	n = gl_Position;\n"+
+			"	n = pMatrix * vec4(vertex,1.0);\n"+
 			"}\n",
 			"precision mediump float;\n"+
 			"uniform vec4 colour;\n"+
