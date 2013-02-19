@@ -64,10 +64,14 @@ function onMouseUp(evt) {
 
 function Trajectory(from,to) {
 	assert(this !== window);
-	this.steps = 10;
+	var	fromLL = vec3ToLngLat(from),
+		toLL = vec3ToLngLat(to),
+		dist = computeDistance(fromLL[0],fromLL[1],toLL[0],toLL[1]);
+	this.steps = Math.max(10,Math.round(dist/100000)); // one every 100km for long journeys
+	console.log("trajectory:",from,fromLL,to,toLL,dist,this.steps);
+	var pts = new Float32Array(3*this.steps);
 	from = vec3_vec4(from,0);
 	to = vec3_vec4(to,0);
-	var pts = new Float32Array(3*this.steps);
 	for(var i=0; i<this.steps; i++) {
 		var	t = i/(this.steps-1),
 			pt = vec3_scale(quat_slerp(from,to,t),1+0.15*Math.sin(t*Math.PI));
@@ -110,11 +114,14 @@ Trajectory.prototype = {
 	},
 };
 
+function vec3ToLngLat(v) { // unit sphere point in, radians out
+	return [Math.PI/2+Math.atan2(v[2],v[0]),Math.atan2(v[1],Math.sqrt(v[0]*v[0],v[2]*v[2]))];
+}
 
 function computeDistance(lng1,lat1,lng2,lat2) { // radians in, metres out.  untested
 	return Math.acos(Math.sin(lat1)*Math.sin(lat2) + 
 		Math.cos(lat1)*Math.cos(lat2) *
-		Math.cos(lon2-lon1)) * 6370986;
+		Math.cos(lng2-lng1)) * 6370986;
 }
 
 function computeBearing(lng1,lat1,lng2,lat2) { // radians in and out.  untested
