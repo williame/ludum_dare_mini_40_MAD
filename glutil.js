@@ -482,6 +482,33 @@ function sphere_ray_intersects(sphere,ray_origin,ray_dir) {
 	return [a*2,-b,discriminant];
 }
 
+function sphere_ray_intersection2(sphere,ray_origin,ray_dir) {
+	//Compute A, B and C coefficients
+	var	a = vec3_dot(ray_dir,ray_dir),
+		b = 2 * vec3_dot(ray_dir,ray_origin),
+		c = vec3_dot(ray_origin,ray_origin)-(sphere[3]*sphere[3]),
+	//Find discriminant
+		disc = b * b - 4 * a * c;
+	// if discriminant is negative there are no real roots 
+	if (disc < 0) return null;
+	// compute q as described above
+	var	distSqrt = Math.sqrt(disc),
+		q = (b<0)? (-b-distSqrt)/2: (-b+distSqrt)/2,
+	// compute t0 and t1
+		t0 = q / a,
+		t1 = c / q;
+	// make sure t0 is smaller than t1
+	if (t0 > t1) {
+		var temp = t0;
+		t0 = t1;
+		t1 = temp;
+	}
+	// if t1 is less than zero, the object is in the ray's negative direction
+	if (t1 < 0) return null;
+	// if t0 is less than zero, the intersection point is at t1
+	return ray_lerp(ray_origin,ray_dir,(t0<0)? t1: t0);
+}
+
 function vec3_rotate(v,rad,axis1,axis2) {
 	// http://local.wasp.uwa.edu.au/~pbourke/geometry/rotate/example.c
 	var	q1 = vec3_sub(v,axis1),

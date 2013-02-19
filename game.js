@@ -6,7 +6,7 @@ var	scene = {},
 	tickMillis = 1000/tickFps,
 	ticks = 0,
 	maxZoom = 80, minZoom = 20,
-	zoom = 60,
+	zoom = 70,
 	zoomFov, // computed in render step for smooth zooming
 	lastZoom = zoom;
 	
@@ -20,9 +20,7 @@ function onZoom(out) {
 
 function onMouseDown(evt) {
 	var	ray = unproject(evt.clientX,canvas.height-evt.clientY,scene.pMatrix,scene.mvMatrix,[0,0,canvas.width,canvas.height]),
-		hit = sphere_ray_intersection([0,0,0,1],ray[0],ray[1]);
-	if(hit != null)
-		hit = mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),vec3_add(ray[0],vec3_scale(ray[1],hit[0])));
+		hit = sphere_ray_intersection2([0,0,0,1],ray[0],ray[1]);
 	caret.setPos(hit);
 }
 
