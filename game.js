@@ -32,16 +32,17 @@ function evtPos(evt) {
 
 function onMouseDown(evt) {
 	var pos = evtPos(evt);
-	if(pos && selected && selected.attack) {
+	if(!pos) return;
+	if(selected && selected.attack) {
 		selected.attack(pos);
 		selected = null;
 	} else {
-		var nearest, nearest_dist;
+		var nearest = null, nearest_dist;
 		for(var site in scene.player.sites) {
 			site = scene.player.sites[site];
 			if(!site.fired) {
 				var dist = computeDistance(site.pos,pos);
-				if(!nearest || dist<nearest_dist) {
+				if(nearest==null || dist<nearest_dist) {
 					nearest = site;
 					nearest_dist = dist;
 				}
@@ -59,10 +60,10 @@ function onMouseMove(evt,keys,isMouseDown) {
 function onMouseUp(evt) {
 }
 
-function Trajectory(from,to) {
+function Trajectory(from,to,colour) {
 	assert(this !== window);
 	var	dist = computeDistance(from,to);
-	this.steps = Math.max(10,Math.round(dist/100000)); // one every 100km for long journeys
+	this.steps = Math.max(10,Math.round(dist/(50*1000))); // one every 50km for long journeys
 	var pts = new Float32Array(3*this.steps);
 	from = vec3_vec4(from,0);
 	to = vec3_vec4(to,0);
@@ -77,6 +78,7 @@ function Trajectory(from,to) {
 	gl.bindBuffer(gl.ARRAY_BUFFER,this.vbo);
 	gl.bufferData(gl.ARRAY_BUFFER,pts,gl.STATIC_DRAW);
 	gl.bindBuffer(gl.ARRAY_BUFFER,null);
+	this.colour = colour;
 }
 Trajectory.prototype = {
 	program: createProgram(
@@ -98,7 +100,7 @@ Trajectory.prototype = {
 		gl.bindBuffer(gl.ARRAY_BUFFER,this.vbo);
 		gl.uniformMatrix4fv(this.program.pMatrix,false,scene.pMatrix);
 		gl.uniformMatrix4fv(this.program.mvMatrix,false,scene.mvMatrix);
-		gl.uniform4f(this.program.colour,1,0,0,1);
+		gl.uniform4fv(this.program.colour,this.colour||OPAQUE);
 		gl.enableVertexAttribArray(this.program.vertex);
 		gl.vertexAttribPointer(this.program.vertex,3,gl.FLOAT,false,3*4,0);
 		gl.drawArrays(gl.LINE_STRIP,0,this.steps);
@@ -174,14 +176,19 @@ Sprite.prototype = {
 		"attribute vec3 vertex;\n"+
 		"uniform mat4 pMatrix, mvMatrix;\n"+
 		"uniform float pointSize;\n"+
+		"varying vec3 pos;\n"+
 		"void main() {\n"+
 		"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
+		"	pos = gl_Position.xyz/gl_Position.w;\n"+
 		"	gl_PointSize = pointSize;\n"+
 		"}\n",
 		"precision mediump float;\n"+
 		"uniform sampler2D texture;\n"+ 
 		"uniform vec4 colour;\n"+
+		"varying vec3 pos;\n"+
 		"void main() {\n"+
+		"	if(pos.z > 0.0) \n"+	
+		"		discard;\n"+
 		"	gl_FragColor = texture2D(texture,gl_PointCoord) * colour;\n"+
 		"}\n",
 		["pMatrix","mvMatrix","colour","pointSize"],
@@ -200,7 +207,7 @@ ICBMSite.prototype = {
 	attack: function(dest) {
 		assert(!this.fired);
 		this.fired = true;
-		this.trajectory = new Trajectory(this.pos,dest);
+		this.trajectory = new Trajectory(this.pos,dest,this.country.colours.flight_icbm);
 		this.tex = "data/base_empty.png";
 		if(!getFile("image",this.tex))
 			loadFile("image",this.tex);
