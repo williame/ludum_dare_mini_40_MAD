@@ -1,19 +1,19 @@
 
-var	scene = {
+var	deg2rad = Math.PI/180,
+	scene = {
 		mvMatrix: mat4_identity,
 	},
 	startTime = now(),
 	lastTick = 0,
 	tickFps = 10,
 	tickMillis = 1000/tickFps,
-	ticks = 0,
+	ticks = 0,                                                
 	maxZoom = 80, minZoom = 20,
 	zoom = 70,
 	zoomFov, // computed in render step for smooth zooming
 	lastZoom = zoom,
-	pin = null,
-	trajectories = [],
-	mouse = null;
+	mouse = null,
+	selected = null;
 	
 function onZoom(out) {
 	zoom += out? 1: -1;
@@ -31,42 +31,38 @@ function evtPos(evt) {
 }
 
 function onMouseDown(evt) {
-	pin = evtPos(evt);
-	if(pin && caret.pos) {
-		trajectories.push(new Trajectory(caret.pos,pin));
-		caret.setPos(pin);
-	} else
-		caret.setPos(pin);
+	var pos = evtPos(evt);
+	if(pos && selected && selected.attack) {
+		selected.attack(pos);
+		selected = null;
+	} else {
+		var nearest, nearest_dist;
+		for(var site in scene.player.sites) {
+			site = scene.player.sites[site];
+			if(!site.fired) {
+				var dist = computeDistance(site.pos,pos);
+				if(!nearest || dist<nearest_dist) {
+					nearest = site;
+					nearest_dist = dist;
+				}
+			}
+		}
+		if(nearest && nearest_dist < 100*1000) {
+			selected = nearest;
+		}
+	}
 }
 
 function onMouseMove(evt,keys,isMouseDown) {
-	if(!isMouseDown) return;
-	return; //######
-	var pt = evtPos(evt);
-	if(pin == null) pin = pt;
-	if(pt == null) return;
-	var	d = vec3_sub(pt,pin),
-		rotx = Math.atan2(d[1],d[2]),
-		roty = (d[2] >= 0)||true?
-			-Math.atan2(d[0] * Math.cos(rotx),d[2]):
-			Math.atan2(d[0] * Math.cos(rotx),-d[2]),
-		rotz = Math.atan2(Math.cos(rotx),Math.sin(rotx)*Math.sin(roty));
-	scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(rotx,[1,0,0]));
-	scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(roty,[0,1,0]));
-	scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(rotz,[0,0,1]));
 }
 
 function onMouseUp(evt) {
-	pin = null;
 }
 
 function Trajectory(from,to) {
 	assert(this !== window);
-	var	fromLL = vec3ToLngLat(from),
-		toLL = vec3ToLngLat(to),
-		dist = computeDistance(fromLL[0],fromLL[1],toLL[0],toLL[1]);
+	var	dist = computeDistance(from,to);
 	this.steps = Math.max(10,Math.round(dist/100000)); // one every 100km for long journeys
-	console.log("trajectory:",from,fromLL,to,toLL,dist,this.steps);
 	var pts = new Float32Array(3*this.steps);
 	from = vec3_vec4(from,0);
 	to = vec3_vec4(to,0);
@@ -112,14 +108,22 @@ Trajectory.prototype = {
 	},
 };
 
+function lngLatToVec3(lng,lat) {
+	lng *= deg2rad;
+	lat *= deg2rad;
+	return [-Math.cos(lat)*Math.cos(lng),Math.sin(lat),Math.cos(lat)*Math.sin(lng)];
+}
+
 function vec3ToLngLat(v) { // unit sphere point in, radians out
 	return [Math.PI/2+Math.atan2(v[2],v[0]),Math.atan2(v[1],Math.sqrt(v[0]*v[0],v[2]*v[2]))];
 }
 
-function computeDistance(lng1,lat1,lng2,lat2) { // radians in, metres out.  untested
-	return Math.acos(Math.sin(lat1)*Math.sin(lat2) + 
-		Math.cos(lat1)*Math.cos(lat2) *
-		Math.cos(lng2-lng1)) * 6370986;
+function computeDistance(from,to) { // radians in, metres out.  untested
+	from = vec3ToLngLat(from);
+	to = vec3ToLngLat(to);
+	return Math.acos(Math.sin(from[1])*Math.sin(to[1]) + 
+		Math.cos(from[1])*Math.cos(to[1]) *
+		Math.cos(to[0]-from[0])) * 6370986;
 }
 
 function computeBearing(lng1,lat1,lng2,lat2) { // radians in and out.  untested
@@ -128,10 +132,18 @@ function computeBearing(lng1,lat1,lng2,lat2) { // radians in and out.  untested
 	return Math.atan2(y,x);
 }
 
-var caret = { // this is just test code, to make it easy to put a marker anywhere on the globe, so we know where you clicked or whatever for debugging
-	vbo: gl.createBuffer(),
-	pos: null,
-	dirty: true,
+function Sprite(tex,size,colour,pos) {
+	assert(this !== window);
+	this.vbo = gl.createBuffer();
+	this.tex = tex;
+	this.size = size || 10;
+	this.colour = colour || OPAQUE;
+	this.pos = pos;
+	this.dirty = pos;
+	if(tex && !getFile("image",tex))
+		loadFile("image",tex);
+}
+Sprite.prototype = {
 	setPos: function(pos) {
 		this.pos = pos;
 		this.dirty = pos;
@@ -146,8 +158,10 @@ var caret = { // this is just test code, to make it easy to put a marker anywher
 		gl.useProgram(this.program);
 		gl.uniformMatrix4fv(this.program.pMatrix,false,scene.pMatrix);
 		gl.uniformMatrix4fv(this.program.mvMatrix,false,scene.mvMatrix);
-		gl.uniform4f(this.program.colour,1,0,0,1);
-		gl.uniform1f(this.program.pointSize,10);
+		var tex = this.tex? getFile("image",this.tex): null;
+		gl.bindTexture(gl.TEXTURE_2D,tex||programs.blankTex);
+		gl.uniform4fv(this.program.colour,this.colour);
+		gl.uniform1f(this.program.pointSize,this.size);
 		gl.enableVertexAttribArray(this.program.vertex);
 		gl.vertexAttribPointer(this.program.vertex,3,gl.FLOAT,false,3*4,0);
 		gl.drawArrays(gl.POINTS,0,1);
@@ -165,13 +179,39 @@ var caret = { // this is just test code, to make it easy to put a marker anywher
 		"	gl_PointSize = pointSize;\n"+
 		"}\n",
 		"precision mediump float;\n"+
+		"uniform sampler2D texture;\n"+ 
 		"uniform vec4 colour;\n"+
 		"void main() {\n"+
-		"	gl_FragColor = colour;\n"+
+		"	gl_FragColor = texture2D(texture,gl_PointCoord) * colour;\n"+
 		"}\n",
 		["pMatrix","mvMatrix","colour","pointSize"],
 		["vertex"]),
-};		
+};
+
+function ICBMSite(country,name,pos) {
+	Sprite.call(this,"data/base_icbm.png",36);
+	this.country = country;
+	this.setPos(pos);
+	this.fired = false;
+	this.trajectory = null;
+}
+ICBMSite.prototype = {
+	__proto__: Sprite.prototype,
+	attack: function(dest) {
+		assert(!this.fired);
+		this.fired = true;
+		this.trajectory = new Trajectory(this.pos,dest);
+		this.tex = "data/base_empty.png";
+		if(!getFile("image",this.tex))
+			loadFile("image",this.tex);
+	},
+	draw: function() {
+		this.colour = (this===selected)? [1,1,1,1]: this.country.colours.base_icbm;
+		Sprite.prototype.draw.call(this);
+		if(this.trajectory)
+			this.trajectory.draw();
+	},
+};
 
 function game() {
 	splash.dismiss();
@@ -182,8 +222,8 @@ function game() {
 			gl.useProgram(this.program);
 			gl.uniformMatrix4fv(this.program.pMatrix,false,scene.pMatrix);
 			gl.uniformMatrix4fv(this.program.mvMatrix,false,scene.mvMatrix);
-			gl.uniform4f(this.program.fgColour,0,1,0,1);
-			gl.uniform4f(this.program.bgColour,0,0.3,0,0.8);
+			gl.uniform4fv(this.program.fgColour,scene.player.colours.map_fg);
+			gl.uniform4fv(this.program.bgColour,scene.player.colours.map_bg);
 			gl.enableVertexAttribArray(this.program.vertex);
 			gl.bindBuffer(gl.ARRAY_BUFFER,this.vbo);
 			gl.lineWidth(1+3*(maxZoom-zoomFov)/(maxZoom-minZoom)); // scale lines by zoom
@@ -217,16 +257,26 @@ function game() {
 			["vertex"]),
 		data: getFile("json","data/world.json"),
 	};
-	var pts = [], deg2rad = Math.PI/180;
+	var pts = [];
 	for(var i=0; i<scene.map.data.pts.length; i+=2) {
-		var	lng = scene.map.data.pts[i] * deg2rad,
-			lat = scene.map.data.pts[i+1] * deg2rad;
-		pts.push(-Math.cos(lat)*Math.cos(lng),Math.sin(lat),Math.cos(lat)*Math.sin(lng));
+		var pos = lngLatToVec3(scene.map.data.pts[i],scene.map.data.pts[i+1]);
+		pts.push(pos[0],pos[1],pos[2]);
 	}
 	pts.push(0,0,0); // centre of sphere, for sprite z-culling trick
 	gl.bindBuffer(gl.ARRAY_BUFFER,scene.map.vbo);
 	gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(pts),gl.STATIC_DRAW);
 	gl.bindBuffer(gl.ARRAY_BUFFER,null);
+	
+	scene.countries = getFile("json","data/sites.json").countries;
+	scene.player = scene.countries.US;
+	for(var country in scene.countries) {
+		country = scene.countries[country];
+		country.sites = [];
+		for(var site in country.base_icbm) {
+			site = country.base_icbm[site];
+			country.sites.push(new ICBMSite(country,site[0],lngLatToVec3(site[2],site[1])));
+		}
+	}
 }
 
 function render() {
@@ -237,19 +287,23 @@ function render() {
 		lastTick = t = ticks = 0;
 	}
 	// tick
-	
 	while(lastTick <= t) {
 		if(mousePos) {
 			var	scrollEdge = 10,
 				zoomT = 0.1 * Math.max(0.1,(zoom-minZoom)/(maxZoom-minZoom));
 			if((keys[37] && !keys[39]) || mousePos[0] < scrollEdge) // left
-				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,[0,-1,0]));
+				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),[0,-1,0])));
 			else if((keys[39] && !keys[37]) || mousePos[0] > canvas.width-scrollEdge) // right
-				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,[0,1,0]));
-			else if((keys[38] && !keys[40]) || mousePos[1] < scrollEdge) // up
-				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,[-1,0,0]));
+				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),[0,1,0])));
+			if((keys[38] && !keys[40]) || mousePos[1] < scrollEdge) // up
+				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),[-1,0,0])));
 			else if((keys[40] && !keys[38]) || mousePos[1] > canvas.height-scrollEdge) // down
-				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,[1,0,0]));
+				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),[1,0,0])));
+			if(keys[33] && !keys[34]) // pgup
+				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),[0,0,-1])));
+			else if(keys[34] && !keys[33]) // pgdn
+				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),[0,0,1])));
+		
 		}
 		//###....
 		lastTick += tickMillis;
@@ -269,8 +323,12 @@ function render() {
 	gl.clearColor(0,0,0,1);
 	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
 	scene.map.draw();
-	for(var trajectory in trajectories)
-		trajectories[trajectory].draw();
-	caret.draw();
+	for(var country in scene.countries) {
+		country = scene.countries[country];
+		for(var site in country.sites) {
+			site = country.sites[site];
+			site.draw();
+		}
+	}
 }
 
