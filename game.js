@@ -313,7 +313,6 @@ function game() {
 	gl.bindBuffer(gl.ARRAY_BUFFER,null);
 	
 	scene.countries = getFile("json","data/sites.json").countries;
-	scene.player = scene.countries.US;
 	for(var country in scene.countries) {
 		country = scene.countries[country];
 		country.sites = [];
@@ -325,6 +324,11 @@ function game() {
 	loadFile("image","data/base_icbm.png");
 	loadFile("image","data/base_empty.png");
 	loadFile("image","data/flight_icbm.png");
+
+	// start by hardcoding player to US
+	scene.player = scene.countries.US;
+	scene.mvMatrix = mat4_rotation(Math.PI,[0,1,0]);
+	scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(0.45,[1,0,0]));
 }
 
 function render() {
