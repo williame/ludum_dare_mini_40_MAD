@@ -999,7 +999,7 @@ function Sphere(iterations) {
 		vVbo: gl.createBuffer(),
 		iVbo: gl.createBuffer(),
 		indexCount: indices.length,
-		draw: function(pMatrix,mvMatrix,sphere,colour,invert) {
+		draw: function(pMatrix,mvMatrix,sphere,colour,invert,drawOp) {
 			var frontFace = gl.getParameter(gl.FRONT_FACE);
 			gl.frontFace(invert? gl.CCW: gl.CW);
 			mvMatrix = mat4_multiply(mvMatrix,mat4_translation(sphere));
@@ -1013,7 +1013,7 @@ function Sphere(iterations) {
 			gl.bindBuffer(gl.ARRAY_BUFFER,self.vVbo);
 			gl.vertexAttribPointer(Sphere.program.vertex,3,gl.FLOAT,false,3*4,0);
 			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,self.iVbo);
-			gl.drawElements(gl.TRIANGLES,self.indexCount,gl.UNSIGNED_SHORT,0);
+			gl.drawElements(drawOp||gl.TRIANGLES,self.indexCount,gl.UNSIGNED_SHORT,0);
 			gl.disableVertexAttribArray(Sphere.program.vertex);
 			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,null);
 			gl.bindBuffer(gl.ARRAY_BUFFER,null);

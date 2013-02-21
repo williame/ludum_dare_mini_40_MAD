@@ -60,16 +60,22 @@ function onMouseMove(evt,keys,isMouseDown) {
 function onMouseUp(evt) {
 }
 
+function onKeyDown(evt) {
+	if(evt.which==27 && selected) { //ESC
+		selected = null;
+	}
+}
+
 function Trajectory(from,to,colour) {
 	assert(this !== window);
-	var	dist = computeDistance(from,to);
-	this.steps = Math.max(10,Math.round(dist/(50*1000))); // one every 50km for long journeys
+	this.distance = computeDistance(from,to);
+	this.steps = Math.max(10,Math.round(this.distance/(50*1000))); // one every 50km for long journeys
 	var pts = new Float32Array(3*this.steps);
-	from = vec3_vec4(from,0);
-	to = vec3_vec4(to,0);
+	this.from = vec3_vec4(from,0);
+	this.to = vec3_vec4(to,0);
 	for(var i=0; i<this.steps; i++) {
 		var	t = i/(this.steps-1),
-			pt = vec3_scale(quat_slerp(from,to,t),1+0.15*Math.sin(t*Math.PI));
+			pt = this.getPos(t);
 		pts[i*3] = pt[0];
 		pts[i*3+1] = pt[1];
 		pts[i*3+2] = pt[2];
@@ -95,6 +101,10 @@ Trajectory.prototype = {
 		"}\n",
 		["pMatrix","mvMatrix","colour",],
 		["vertex"]),
+	getPos: function(t) {
+		t = Math.max(Math.min(t,1),0);
+		return vec3_scale(quat_slerp(this.from,this.to,t),1+0.15*Math.sin(t*Math.PI));
+	},
 	draw: function() {
 		gl.useProgram(this.program);
 		gl.bindBuffer(gl.ARRAY_BUFFER,this.vbo);
@@ -157,6 +167,7 @@ Sprite.prototype = {
 			gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(this.pos),gl.STATIC_DRAW);
 			this.dirty = false;
 		}
+		gl.disable(gl.DEPTH_TEST);
 		gl.useProgram(this.program);
 		gl.uniformMatrix4fv(this.program.pMatrix,false,scene.pMatrix);
 		gl.uniformMatrix4fv(this.program.mvMatrix,false,scene.mvMatrix);
@@ -170,6 +181,7 @@ Sprite.prototype = {
 		gl.disableVertexAttribArray(this.program.vertex);
 		gl.bindBuffer(gl.ARRAY_BUFFER,null);
 		gl.useProgram(null);
+		gl.enable(gl.DEPTH_TEST);
 	},
 	program: createProgram(
 		"precision mediump float;\n"+
@@ -198,25 +210,51 @@ Sprite.prototype = {
 function ICBMSite(country,name,pos) {
 	Sprite.call(this,"data/base_icbm.png",36);
 	this.country = country;
+	this.name = name;
 	this.setPos(pos);
 	this.fired = false;
+	this.explosion = 0;
+	this.exploding = false;
+	this.exploded = false;
+	this.range = 0;
+	this.yield = 20;
+	this.missile = null;
 	this.trajectory = null;
 }
 ICBMSite.prototype = {
 	__proto__: Sprite.prototype,
 	attack: function(dest) {
 		assert(!this.fired);
-		this.fired = true;
+		this.fired = lastTick+tickMillis; // start next tick
+		this.range = 1;
 		this.trajectory = new Trajectory(this.pos,dest,this.country.colours.flight_icbm);
 		this.tex = "data/base_empty.png";
+		this.missile = new Sprite("data/flight_icbm.png",36,this.country.colours.flight_icbm);
 		if(!getFile("image",this.tex))
 			loadFile("image",this.tex);
 	},
-	draw: function() {
+	getPos: function() {
+		if(this.fired)
+			return this.trajectory.getPos(this.getTime());
+		return pos;
+	},
+	getTime: function() {
+		return Math.min(this.range,((now()-startTime)-this.fired) / (this.trajectory.distance/100));
+	},
+	draw: function(t) {
 		this.colour = (this===selected)? [1,1,1,1]: this.country.colours.base_icbm;
 		Sprite.prototype.draw.call(this);
-		if(this.trajectory)
+		if(this.exploded)
+			return;
+		if(this.fired) {
+			var pos = this.getPos();
 			this.trajectory.draw();
+			this.missile.setPos(pos);
+			this.missile.draw();
+			if(this.explosion) {
+				Sphere(1).draw(scene.pMatrix,scene.mvMatrix,vec3_vec4(pos,(this.explosion+t)/300),this.country.colours.base_icbm,false,gl.LINES);
+			}
+		}
 	},
 };
 
@@ -284,6 +322,9 @@ function game() {
 			country.sites.push(new ICBMSite(country,site[0],lngLatToVec3(site[2],site[1])));
 		}
 	}
+	loadFile("image","data/base_icbm.png");
+	loadFile("image","data/base_empty.png");
+	loadFile("image","data/flight_icbm.png");
 }
 
 function render() {
@@ -310,9 +351,25 @@ function render() {
 				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),[0,0,-1])));
 			else if(keys[34] && !keys[33]) // pgdn
 				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),[0,0,1])));
-		
 		}
-		//###....
+		
+		for(var country in scene.countries) {
+			country = scene.countries[country];
+			for(var site in country.sites) {
+				site = country.sites[site];
+				if(site.fired && !site.exploded) {
+					if(site.explosion == site.yield) {
+						site.exploding = false;
+						site.exploded = true;
+					} else if(site.exploding) {
+						site.explosion++;
+					} else {
+						site.exploding = (site.getTime() == site.range);
+					}
+				}
+			}
+		}
+		
 		lastTick += tickMillis;
 		ticks++;
 		lastZoom = zoom;
@@ -334,7 +391,7 @@ function render() {
 		country = scene.countries[country];
 		for(var site in country.sites) {
 			site = country.sites[site];
-			site.draw();
+			site.draw(pathTime);
 		}
 	}
 }
