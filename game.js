@@ -14,7 +14,7 @@ var	deg2rad = Math.PI/180,
 	lastZoom = zoom,
 	mouse = null,
 	selected = null;
-	
+
 function onZoom(out) {
 	zoom += out? 1: -1;
 	zoom = Math.min(maxZoom,Math.max(minZoom,zoom));
@@ -330,7 +330,16 @@ function game() {
 function render() {
 	var t = now()-startTime;
 	if(t-lastTick > 1000) { // whole seconds elapsed?  eat them?
-		console.log("eating",t-lastTick,"elapsed time");
+		console.log("eating",(t-lastTick)/1000,"seconds elapsed time");
+		for(var country in scene.countries) {
+			country = scene.countries[country];
+			for(var site in country.sites) {
+				site = country.sites[site];
+				if(site.fired && !site.exploding && !site.exploded) {
+					site.fired -= lastTick;
+				}
+			}
+		}
 		startTime = now();
 		lastTick = t = ticks = 0;
 	}
@@ -370,6 +379,8 @@ function render() {
 			}
 		}
 		
+		aiTick();
+		
 		lastTick += tickMillis;
 		ticks++;
 		lastZoom = zoom;
@@ -392,6 +403,24 @@ function render() {
 		for(var site in country.sites) {
 			site = country.sites[site];
 			site.draw(pathTime);
+		}
+	}
+}
+
+function aiTick() {
+	// fire a random missile every 5 seconds; couldn't be stupider
+	if(ticks && !(ticks%(5*tickFps))) {
+		for(var country in scene.countries) {
+			country = scene.countries[country];
+			if(country == scene.player) continue;
+			for(var site in country.sites) {
+				site = country.sites[site];
+				if(!site.fired) {
+					var target = scene.player.sites[Math.floor(Math.random()*scene.player.sites.length)];
+					site.attack(target.pos);
+					break;
+				}
+			}
 		}
 	}
 }
