@@ -13,7 +13,8 @@ var	anisotropic = gl.getExtension("EXT_texture_filter_anisotropic") ||
 	max_anisotropy = anisotropic? gl.getParameter(anisotropic.MAX_TEXTURE_MAX_ANISOTROPY_EXT): 0,
 	anisotropy = max_anisotropy,
 	_textures = [],
-	OPAQUE = new Float32Array([1,1,1,1]);
+	OPAQUE = new Float32Array([1,1,1,1]),
+	TRANSPARENT = new Float32Array([0,0,0,0]);
 
 function set_anisotropy(anisotropy) {
 	if(!max_anisotropy) return;

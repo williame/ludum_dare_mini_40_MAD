@@ -1,5 +1,6 @@
 
 var	deg2rad = Math.PI/180,
+	drawOrtho = false,
 	scene = {
 		mvMatrix: mat4_identity,
 	},
@@ -14,6 +15,29 @@ var	deg2rad = Math.PI/180,
 	lastZoom = zoom,
 	mouse = null,
 	selected = null;
+	
+var earthShadowProgram = createProgram(
+	"precision mediump float;\n"+
+	"attribute vec3 vertex;\n"+
+	"uniform mat4 pMatrix, mvMatrix;\n"+
+	"varying vec4 pos;\n"+
+	"void main() {\n"+
+	"	pos = (mvMatrix * vec4(vertex,1.0));\n"+
+	"	gl_Position = pMatrix * pos;\n"+
+	"}\n",
+	"precision mediump float;\n"+
+	"uniform vec4 fgColour, bgColour;\n"+
+	"uniform vec3 sphereCentre;\n"+
+	"uniform float sphereRadius2; // always 1 in my game fwiw\n"+
+	"varying vec4 pos;\n"+
+	"void main() {\n"+
+	"	vec3 p = pos.xyz/pos.w;\n"+
+	"	float t = dot(sphereCentre,p)/dot(p,p);\n"+
+	"	vec3 d = (p*t)-sphereCentre;\n"+
+	"	gl_FragColor = (dot(d,d) > sphereRadius2 || t<=1.0)? fgColour: bgColour;\n"+
+	"}\n",
+	["pMatrix","mvMatrix","fgColour","bgColour","sphereCentre","sphereRadius2"],
+	["vertex"]);
 
 function onZoom(out) {
 	zoom += out? 1: -1;
@@ -87,34 +111,25 @@ function Trajectory(from,to,colour) {
 	this.colour = colour;
 }
 Trajectory.prototype = {
-	program: createProgram(
-		"precision mediump float;\n"+
-		"attribute vec3 vertex;\n"+
-		"uniform mat4 pMatrix, mvMatrix;\n"+
-		"void main() {\n"+
-		"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
-		"}\n",
-		"precision mediump float;\n"+
-		"uniform vec4 colour;\n"+
-		"void main() {\n"+
-		"	gl_FragColor = colour;\n"+
-		"}\n",
-		["pMatrix","mvMatrix","colour",],
-		["vertex"]),
 	getPos: function(t) {
 		t = Math.max(Math.min(t,1),0);
 		return vec3_scale(quat_slerp(this.from,this.to,t),1+0.15*Math.sin(t*Math.PI));
 	},
 	draw: function() {
-		gl.useProgram(this.program);
+		var program = earthShadowProgram;
+		gl.useProgram(program);
+		gl.uniformMatrix4fv(program.pMatrix,false,scene.pMatrix);
+		gl.uniformMatrix4fv(program.mvMatrix,false,scene.mvMatrix);
+		var sphereCentre = mat4_vec3_multiply(scene.mvMatrix,[0,0,0]);
+		gl.uniform3fv(program.sphereCentre,sphereCentre);
+		gl.uniform1f(program.sphereRadius2,1);
+		gl.uniform4fv(program.fgColour,[1,1,1,1]);
+		gl.uniform4fv(program.bgColour,[0,0,1,1]);
 		gl.bindBuffer(gl.ARRAY_BUFFER,this.vbo);
-		gl.uniformMatrix4fv(this.program.pMatrix,false,scene.pMatrix);
-		gl.uniformMatrix4fv(this.program.mvMatrix,false,scene.mvMatrix);
-		gl.uniform4fv(this.program.colour,this.colour||OPAQUE);
-		gl.enableVertexAttribArray(this.program.vertex);
-		gl.vertexAttribPointer(this.program.vertex,3,gl.FLOAT,false,3*4,0);
+		gl.enableVertexAttribArray(program.vertex);
+		gl.vertexAttribPointer(program.vertex,3,gl.FLOAT,false,3*4,0);
 		gl.drawArrays(gl.LINE_STRIP,0,this.steps);
-		gl.disableVertexAttribArray(this.program.vertex);
+		gl.disableVertexAttribArray(program.vertex);
 		gl.bindBuffer(gl.ARRAY_BUFFER,null);
 		gl.useProgram(null);
 	},
@@ -167,44 +182,53 @@ Sprite.prototype = {
 			gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(this.pos),gl.STATIC_DRAW);
 			this.dirty = false;
 		}
-		gl.disable(gl.DEPTH_TEST);
-		gl.useProgram(this.program);
-		gl.uniformMatrix4fv(this.program.pMatrix,false,scene.pMatrix);
-		gl.uniformMatrix4fv(this.program.mvMatrix,false,scene.mvMatrix);
+		var program = this.program;
+		gl.useProgram(program);
+		gl.uniformMatrix4fv(program.pMatrix,false,scene.pMatrix);
+		gl.uniformMatrix4fv(program.mvMatrix,false,scene.mvMatrix);
 		var tex = this.tex? getFile("image",this.tex): null;
+		var sphereCentre = mat4_vec3_multiply(scene.mvMatrix,[0,0,0]);
+		gl.uniform3fv(program.sphereCentre,sphereCentre);
+		gl.uniform1f(program.sphereRadius2,1);
+		gl.uniform4fv(program.fgColour,this.colour);
+		gl.uniform4fv(program.bgColour,TRANSPARENT);
+		gl.uniform1f(program.pointSize,this.size);
 		gl.bindTexture(gl.TEXTURE_2D,tex||programs.blankTex);
-		gl.uniform4fv(this.program.colour,this.colour);
-		gl.uniform1f(this.program.pointSize,this.size);
-		gl.enableVertexAttribArray(this.program.vertex);
-		gl.vertexAttribPointer(this.program.vertex,3,gl.FLOAT,false,3*4,0);
+		gl.enableVertexAttribArray(program.vertex);
+		gl.vertexAttribPointer(program.vertex,3,gl.FLOAT,false,3*4,0);
 		gl.drawArrays(gl.POINTS,0,1);
-		gl.disableVertexAttribArray(this.program.vertex);
+		gl.disableVertexAttribArray(program.vertex);
 		gl.bindBuffer(gl.ARRAY_BUFFER,null);
 		gl.useProgram(null);
-		gl.enable(gl.DEPTH_TEST);
 	},
 	program: createProgram(
 		"precision mediump float;\n"+
 		"attribute vec3 vertex;\n"+
 		"uniform mat4 pMatrix, mvMatrix;\n"+
 		"uniform float pointSize;\n"+
-		"varying vec3 pos;\n"+
+		"varying vec4 pos;\n"+
 		"void main() {\n"+
-		"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
-		"	pos = gl_Position.xyz/gl_Position.w;\n"+
+		"	pos = (mvMatrix * vec4(vertex,1.0));\n"+
+		"	gl_Position = pMatrix * pos;\n"+
 		"	gl_PointSize = pointSize;\n"+
 		"}\n",
 		"precision mediump float;\n"+
-		"uniform sampler2D texture;\n"+ 
-		"uniform vec4 colour;\n"+
-		"varying vec3 pos;\n"+
+		"uniform sampler2D texture;\n"+
+		"uniform vec4 fgColour, bgColour;\n"+
+		"uniform float pointSize;\n"+
+		"uniform vec3 sphereCentre;\n"+
+		"uniform float sphereRadius2; // always 1 in my game fwiw\n"+
+		"varying vec4 pos;\n"+
 		"void main() {\n"+
-		"	if(pos.z > 0.0) \n"+	
-		"		discard;\n"+
+		"	vec3 p = pos.xyz/pos.w;\n"+
+		"	float t = dot(sphereCentre,p)/dot(p,p);\n"+
+		"	vec3 d = (p*t)-sphereCentre;\n"+
+		"	vec4 colour = (dot(d,d) > sphereRadius2 || t<=1.0)? fgColour: bgColour;\n"+
 		"	gl_FragColor = texture2D(texture,gl_PointCoord) * colour;\n"+
 		"}\n",
-		["pMatrix","mvMatrix","colour","pointSize"],
-		["vertex"]),
+		["pMatrix","mvMatrix","fgColour","bgColour","sphereCentre","sphereRadius2","pointSize"],
+		["vertex"]
+	),
 };
 
 function ICBMSite(country,name,pos) {
@@ -264,42 +288,29 @@ function game() {
 	scene.map = {
 		vbo: gl.createBuffer(),
 		draw: function() {
-			gl.useProgram(this.program);
-			gl.uniformMatrix4fv(this.program.pMatrix,false,scene.pMatrix);
-			gl.uniformMatrix4fv(this.program.mvMatrix,false,scene.mvMatrix);
-			gl.uniform4fv(this.program.fgColour,scene.player.colours.map_fg);
-			gl.uniform4fv(this.program.bgColour,scene.player.colours.map_bg);
-			gl.enableVertexAttribArray(this.program.vertex);
+			var program = earthShadowProgram;
+			gl.useProgram(program);
+			gl.uniformMatrix4fv(program.pMatrix,false,scene.pMatrix);
+			gl.uniformMatrix4fv(program.mvMatrix,false,scene.mvMatrix);
+			var sphereCentre = mat4_vec3_multiply(scene.mvMatrix,[0,0,0]);
+			gl.uniform3fv(program.sphereCentre,sphereCentre);
+			gl.uniform1f(program.sphereRadius2,1);
+			gl.uniform4fv(program.fgColour,scene.player.colours.map_fg);
+			gl.uniform4fv(program.bgColour,scene.player.colours.map_bg);
+			gl.enableVertexAttribArray(program.vertex);
 			gl.bindBuffer(gl.ARRAY_BUFFER,this.vbo);
 			gl.lineWidth(1+3*(maxZoom-zoomFov)/(maxZoom-minZoom)); // scale lines by zoom
-			gl.vertexAttribPointer(this.program.vertex,3,gl.FLOAT,false,3*4,0);
+			gl.vertexAttribPointer(program.vertex,3,gl.FLOAT,false,3*4,0);
 			var ofs = 0, parts = this.data.ofs;
 			for(var part=0; part<parts.length; part++) {
 				var start = ofs;
 				ofs += parts[part];
 				gl.drawArrays(gl.LINE_STRIP,start,ofs-start);
 			}
-			gl.disableVertexAttribArray(this.program.vertex);
+			gl.disableVertexAttribArray(program.vertex);
 			gl.bindBuffer(gl.ARRAY_BUFFER,null);
 			gl.useProgram(null);
 		},
-		program: createProgram(
-			"precision mediump float;\n"+
-			"attribute vec3 vertex;\n"+
-			"uniform mat4 pMatrix, mvMatrix;\n"+
-			"varying vec4 v;\n"+
-			"void main() {\n"+
-			"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
-			"	v = gl_Position;\n"+
-			"}\n",
-			"precision mediump float;\n"+
-			"uniform vec4 fgColour, bgColour;\n"+
-			"varying vec4 v;\n"+
-			"void main() {\n"+
-			"	gl_FragColor = (v.z > 0.0)? bgColour: fgColour;\n"+
-			"}\n",
-			["pMatrix","mvMatrix","fgColour","bgColour"],
-			["vertex"]),
 		data: getFile("json","data/world.json"),
 	};
 	var pts = [];
@@ -327,7 +338,9 @@ function game() {
 
 	// start by hardcoding player to US
 	scene.player = scene.countries.US;
-	scene.mvMatrix = mat4_rotation(Math.PI,[0,1,0]);
+	if(!drawOrtho)
+		scene.mvMatrix = createLookAt([0,0,-2],[0,0,0],[0,1,0]);
+	scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(Math.PI,[0,1,0]));
 	scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(0.45,[1,0,0]));
 }
 
@@ -353,17 +366,17 @@ function render() {
 			var	scrollEdge = 10,
 				zoomT = 0.1 * Math.max(0.1,(zoom-minZoom)/(maxZoom-minZoom));
 			if((keys[37] && !keys[39]) || mousePos[0] < scrollEdge) // left
-				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),[0,-1,0])));
+				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(scene.mvpInverse,[0,-1,0])));
 			else if((keys[39] && !keys[37]) || mousePos[0] > canvas.width-scrollEdge) // right
-				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),[0,1,0])));
+				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(scene.mvpInverse,[0,1,0])));
 			if((keys[38] && !keys[40]) || mousePos[1] < scrollEdge) // up
-				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),[-1,0,0])));
+				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(scene.mvpInverse,[-1,0,0])));
 			else if((keys[40] && !keys[38]) || mousePos[1] > canvas.height-scrollEdge) // down
-				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),[1,0,0])));
+				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(scene.mvpInverse,[1,0,0])));
 			if(keys[33] && !keys[34]) // pgup
-				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),[0,0,-1])));
+				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(scene.mvpInverse,[0,0,-1])));
 			else if(keys[34] && !keys[33]) // pgdn
-				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(mat4_inverse(scene.mvMatrix),[0,0,1])));
+				scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation(zoomT,mat4_vec3_multiply(scene.mvpInverse,[0,0,1])));
 		}
 		
 		for(var country in scene.countries) {
@@ -392,16 +405,22 @@ function render() {
 	var	gameTime = t,
 		pathTime = Math.min(1,Math.max(0,1-((lastTick-t)/tickMillis))); // now as fraction of next step
 	zoomFov = lastZoom+(zoom-lastZoom)*pathTime; // smooth zoom
-	var	zoomFactor = 0.3+(zoomFov-minZoom)/(maxZoom-minZoom),
-		xaspect = canvas.width>canvas.height? canvas.width/canvas.height: 1,
-		yaspect = canvas.width<canvas.height? canvas.height/canvas.width: 1,
-		ortho = [-zoomFactor*xaspect,zoomFactor*xaspect,-zoomFactor*yaspect,zoomFactor*yaspect];
-	scene.ortho = ortho;
-	scene.pMatrix = createOrtho2D(ortho[0],ortho[1],ortho[2],ortho[3],-2,2);
+	if(drawOrtho) {
+		var	zoomFactor = 0.3+(zoomFov-minZoom)/(maxZoom-minZoom),
+			xaspect = canvas.width>canvas.height? canvas.width/canvas.height: 1,
+			yaspect = canvas.width<canvas.height? canvas.height/canvas.width: 1,
+			ortho = [-zoomFactor*xaspect,zoomFactor*xaspect,-zoomFactor*yaspect,zoomFactor*yaspect];
+		scene.ortho = ortho;
+		scene.pMatrix = createOrtho2D(ortho[0],ortho[1],ortho[2],ortho[3],-2,2);
+	} else {
+		scene.pMatrix = createPerspective(zoomFov,canvas.width/canvas.height,1,10);
+	}
+	scene.mvpInverse = mat4_inverse(mat4_multiply(scene.pMatrix,scene.mvMatrix));
 	//scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation((ticks+pathTime)/10,[0,1,0]));
 	gl.clearColor(0,0,0,1);
 	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
 	scene.map.draw();
+	gl.disable(gl.DEPTH_TEST);
 	for(var country in scene.countries) {
 		country = scene.countries[country];
 		for(var site in country.sites) {
@@ -409,6 +428,7 @@ function render() {
 			site.draw(pathTime);
 		}
 	}
+	gl.enable(gl.DEPTH_TEST);
 }
 
 function aiTick() {
