@@ -186,13 +186,15 @@ Sprite.prototype = {
 		gl.useProgram(program);
 		gl.uniformMatrix4fv(program.pMatrix,false,scene.pMatrix);
 		gl.uniformMatrix4fv(program.mvMatrix,false,scene.mvMatrix);
-		var tex = this.tex? getFile("image",this.tex): null;
-		var sphereCentre = mat4_vec3_multiply(scene.mvMatrix,[0,0,0]);
+		/*var sphereCentre = mat4_vec3_multiply(scene.mvMatrix,[0,0,0]);
 		gl.uniform3fv(program.sphereCentre,sphereCentre);
+		gl.uniformMatrix4fv(program.invPersMatrix,false,mat4_inverse(scene.pMatrix));
+		gl.uniform4f(program.viewport,0,0,canvas.width,canvas.height);
 		gl.uniform1f(program.sphereRadius2,1);
 		gl.uniform4fv(program.fgColour,this.colour);
 		gl.uniform4fv(program.bgColour,TRANSPARENT);
-		gl.uniform1f(program.pointSize,this.size);
+		*/gl.uniform1f(program.pointSize,this.size);
+		var tex = this.tex? getFile("image",this.tex): null;
 		gl.bindTexture(gl.TEXTURE_2D,tex||programs.blankTex);
 		gl.enableVertexAttribArray(program.vertex);
 		gl.vertexAttribPointer(program.vertex,3,gl.FLOAT,false,3*4,0);
@@ -206,27 +208,33 @@ Sprite.prototype = {
 		"attribute vec3 vertex;\n"+
 		"uniform mat4 pMatrix, mvMatrix;\n"+
 		"uniform float pointSize;\n"+
-		"varying vec4 pos;\n"+
 		"void main() {\n"+
-		"	pos = (mvMatrix * vec4(vertex,1.0));\n"+
-		"	gl_Position = pMatrix * pos;\n"+
-		"	gl_PointSize = pointSize;\n"+
+		"	gl_Position = pMatrix * mvMatrix * vec4(vertex,1.0);\n"+
+		"	gl_PointSize = 32.0; //pointSize;\n"+
 		"}\n",
 		"precision mediump float;\n"+
 		"uniform sampler2D texture;\n"+
 		"uniform vec4 fgColour, bgColour;\n"+
 		"uniform float pointSize;\n"+
+		"uniform mat4 invPersMatrix;\n"+
+		"uniform vec4 viewport;\n"+
 		"uniform vec3 sphereCentre;\n"+
 		"uniform float sphereRadius2; // always 1 in my game fwiw\n"+
-		"varying vec4 pos;\n"+
 		"void main() {\n"+
-		"	vec3 p = pos.xyz/pos.w;\n"+
+		"	/*vec4 ndcPos;\n"+
+		"	ndcPos.xy = ((2.0 * gl_FragCoord.xy) - (2.0 * viewport.xy)) / (viewport.zw) - 1.0;\n"+
+		"	ndcPos.z = (2.0 * gl_FragCoord.z - gl_DepthRange.near - gl_DepthRange.far) / \n"+
+		"		(gl_DepthRange.far - gl_DepthRange.near);\n"+
+		"	ndcPos.w = 1.0;\n"+
+		"	vec4 clipPos = ndcPos / gl_FragCoord.w;\n"+
+		"	vec4 eyePos = invPersMatrix * clipPos;\n"+
+		"	vec3 p = eyePos.xyz/eyePos.w;\n"+
 		"	float t = dot(sphereCentre,p)/dot(p,p);\n"+
 		"	vec3 d = (p*t)-sphereCentre;\n"+
 		"	vec4 colour = (dot(d,d) > sphereRadius2 || t<=1.0)? fgColour: bgColour;\n"+
-		"	gl_FragColor = texture2D(texture,gl_PointCoord) * colour;\n"+
+		"	*/gl_FragColor = texture2D(texture,gl_PointCoord); // * colour;\n"+
 		"}\n",
-		["pMatrix","mvMatrix","fgColour","bgColour","sphereCentre","sphereRadius2","pointSize"],
+		["pMatrix","mvMatrix","fgColour","bgColour","pointSize"],//,"sphereCentre","sphereRadius2","invPersMatrix","viewport"],
 		["vertex"]
 	),
 };
@@ -345,6 +353,8 @@ function game() {
 }
 
 function render() {
+	gl.clearColor(0,0,0,1);
+	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
 	var t = now()-startTime;
 	if(t-lastTick > 1000) { // whole seconds elapsed?  eat them?
 		console.log("eating",(t-lastTick)/1000,"seconds elapsed time");
@@ -417,8 +427,6 @@ function render() {
 	}
 	scene.mvpInverse = mat4_inverse(mat4_multiply(scene.pMatrix,scene.mvMatrix));
 	//scene.mvMatrix = mat4_multiply(scene.mvMatrix,mat4_rotation((ticks+pathTime)/10,[0,1,0]));
-	gl.clearColor(0,0,0,1);
-	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
 	scene.map.draw();
 	gl.disable(gl.DEPTH_TEST);
 	for(var country in scene.countries) {
